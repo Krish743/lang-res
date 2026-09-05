@@ -4,11 +4,13 @@ from torch.nn import functional as F
 
 batch_size = 32
 block_size = 8
-max_iters = 3000
+max_iters = 5000
 eval_interval = 300
-lr = 1e-2
+lr = 1e-3
 device = "cuda" if torch.cuda.is_available() else "cpu"
 eval_iters = 200
+n_embed = 32
+# head_size = 16
 
 # !wget https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt
 
@@ -62,13 +64,47 @@ def estimate_loss():
     model.train()
     return out
 
-class BigramModel(nn.Module):
-    def __init__(self, vocab_size):
+class Head(nn.Module):
+    def __init__(self,head_size):
         super().__init__()
-        self.token_embedding = nn.Embedding(vocab_size, vocab_size)
+        
+        self.key = nn.Linear(n_embed, head_size, bias=False)
+        self.query = nn.Linear(n_embed, head_size, bias=False)
+        self.value = nn.Linear(n_embed, head_size, bias=False)
+        self.register_buffer('tril', torch.tril(torch.ones(n_embed, n_embed)))
+    def forward(self, x):
+        B, T, C = x.shape
+        
+        k = self.key(x) # (B,T,16)
+        q = self.query(x) # (B,T,16)
+
+        #now focuses on a token based on learned params instead of giving equal importance to each token
+        wei = q @ k.transpose(-2, -1) * (C ** -0.5)  # (B, T, 16) @ (B, 16 , T) ---> (B, T, T)
+
+        
+        # wei = torch.zeros(T, T)
+        wei = wei.masked_fill(self.tril[:T, :T] == 0 , float('-inf')) # no peeking foward hehe
+        wei = F.softmax(wei, dim=1)
+        
+        v = self.value(x)
+        out = wei @ v # the v gets aggregated
+        return out
+
+class BigramModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.token_embedding = nn.Embedding(vocab_size, n_embed)
+        self.positional_embedding = nn.Embedding(block_size, n_embed)
+        self.sa_head = Head(n_embed)
+        self.lm_head = nn.Linear(n_embed, vocab_size)
 
     def forward(self, idx, targets=None):
-        logits = self.token_embedding(idx)
+        B, T = idx.shape
+        tok_emb = self.token_embedding(idx)
+        pos_emb = self.positional_embedding(torch.arange(T, device = device ))
+        x = tok_emb + pos_emb
+        x = self.sa_head(x)
+        logits = self.lm_head(x)
 
         if targets is None:
             loss = None
@@ -83,14 +119,16 @@ class BigramModel(nn.Module):
 
     def generate(self, idx, max_new_tokens):
         for _ in range(max_new_tokens):
-            logits, loss = self(idx)
+            idx_cropped = idx[:, -block_size:] #we have to crop it to only have 8 char because we have positional encoding
+
+            logits, loss = self(idx_cropped)
             logits = logits[:, -1, :]
 
             probs = F.softmax(logits, dim = -1)
             idx_next = torch.multinomial(probs, num_samples =1)
             idx = torch.cat((idx, idx_next), dim=1)
         return idx
-model = BigramModel(vocab_size)
+model = BigramModel()
 model = model.to(device)
 
 
