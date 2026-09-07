@@ -1,3 +1,5 @@
+#all the em-dashes are user generated.
+
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -75,17 +77,17 @@ class Head(nn.Module):
     def forward(self, x):
         B, T, C = x.shape
         
-        k = self.key(x) # (B,T,16)
-        q = self.query(x) # (B,T,16)
+        k = self.key(x) # (B,T,head_size)
+        q = self.query(x) # (B,T,head_size)
 
         #now focuses on a token based on learned params instead of giving equal importance to each token
-        wei = q @ k.transpose(-2, -1) * (C ** -0.5)  # (B, T, 16) @ (B, 16 , T) ---> (B, T, T)
+        wei = (q @ k.transpose(-2, -1)) * (C ** -0.5)  # (B, T, 16) @ (B, 16 , T) ---> (B, T, T)
 
         
         # wei = torch.zeros(T, T)
         wei = wei.masked_fill(self.tril[:T, :T] == 0 , float('-inf')) # no peeking foward hehe
-        wei = F.softmax(wei, dim=1)
-        
+        wei = F.softmax(wei, dim=1)  # the -inf elems gets the prob of 0 when passed thorugh softmax
+         
         v = self.value(x)
         out = wei @ v # the v gets aggregated
         return out
@@ -111,28 +113,31 @@ class BigramModel(nn.Module):
 
         else:
             B, T, C = logits.shape
-            logits = logits.view(B*T, C)
+            logits = logits.view(B*T, C) #converting the shape casue the cross_entropy doenst take 3 dims, so we're combining all the elements from diff batches into a single vector dim.
             targets = targets.view(B*T)
             loss = F.cross_entropy(logits, targets)
 
         return logits, loss
 
     def generate(self, idx, max_new_tokens):
+        #!!!HEAVY LEARNING FROM HEAVY MISTAKE
+        # idx_cropped = idx[:, -block_size:] -----> lol i tried to bring it up here thinking i was doing some crazy optimization -- welp, i was sending the autoregressive mech. on fire-- basically if it was out of the loop, it wont be able to use the newly generated tokens appended to it inside the loop -- so for every iter it would have just taken 0 as input basically "\n" xD
         for _ in range(max_new_tokens):
             idx_cropped = idx[:, -block_size:] #we have to crop it to only have 8 char because we have positional encoding
+            #it will only have the last 8 elems/chars
 
             logits, loss = self(idx_cropped)
-            logits = logits[:, -1, :]
+            logits = logits[:, -1, :] #taking only the last token, cause only the last token is used to generate the next token
 
-            probs = F.softmax(logits, dim = -1)
+            probs = F.softmax(logits, dim = -1) # will do softmax for each batch item -> here there is no sense of batch but there is max_new_tokens. so, it would generate (1,vocab_size) softmax prob dist for every iter(basically for every new token)
             idx_next = torch.multinomial(probs, num_samples =1)
-            idx = torch.cat((idx, idx_next), dim=1)
+            idx = torch.cat((idx, idx_next), dim=1) 
         return idx
 model = BigramModel()
 model = model.to(device)
 
 
-optimizer = torch.optim.AdamW(model.parameters(), lr = lr)
+optimizer = torch.optim.AdamW(model.parameters(), lr = lr) # AdamW is just adam-chan with weight decay decoupled from regular updatation.
 
 batch_size = 32
 for iter in range(max_iters):
