@@ -4,21 +4,24 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-batch_size = 32
-block_size = 8
-max_iters = 5000
-eval_interval = 300
-lr = 1e-3
+batch_size = 64 # batch size(duh).
+block_size = 256 #context length
+max_iters = 5000 # no of epochs.
+eval_interval = 500 # interval of outputing the eval stuff(losses).
+lr = 3e-4
 device = "cuda" if torch.cuda.is_available() else "cpu"
-eval_iters = 200
-n_embed = 32
-# head_size = 16
+eval_iters = 200 # no of batches to get loss from, to evaluate the model
+n_embed = 384 # embedding dims
+n_head = 6 # no. of heads per block
+n_layers = 6 # no. of blocks
+dropout = .2 # dropout rate
 
 # !wget https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt
 
 with open('input.txt', 'r', encoding = 'utf-8') as f:
     text = f.read()
 
+torch.manual_seed(1337)
 
 
 chars = sorted(list(set(text)))
@@ -37,9 +40,6 @@ n = int(len(data) * 0.9)
 train_data = data[:n]
 val_data = data[n:]
 
-torch.manual_seed(6767)
-batch_size = 4
-block_size = 8
 
 def get_batch(split):
     data = train_data if split == "train" else val_data
@@ -51,7 +51,7 @@ def get_batch(split):
 
 xb, yb = get_batch("train")
 
-
+# using multiple batches to eval the loss, so it is not noisy.
 @torch.no_grad()
 def estimate_loss():
     out = {}
@@ -69,11 +69,13 @@ def estimate_loss():
 class Head(nn.Module):
     def __init__(self,head_size):
         super().__init__()
-        
+        self.head_size = head_size
         self.key = nn.Linear(n_embed, head_size, bias=False)
         self.query = nn.Linear(n_embed, head_size, bias=False)
         self.value = nn.Linear(n_embed, head_size, bias=False)
-        self.register_buffer('tril', torch.tril(torch.ones(n_embed, n_embed)))
+        self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
+
+        self.dropout = nn.Dropout(dropout)
     def forward(self, x):
         B, T, C = x.shape
         
@@ -81,23 +83,69 @@ class Head(nn.Module):
         q = self.query(x) # (B,T,head_size)
 
         #now focuses on a token based on learned params instead of giving equal importance to each token
-        wei = (q @ k.transpose(-2, -1)) * (C ** -0.5)  # (B, T, 16) @ (B, 16 , T) ---> (B, T, T)
+        wei = (q @ k.transpose(-2, -1)) * (self.head_size ** -0.5)  # (B, T, head_size) @ (B, head_size , T) ---> (B, T, T)
 
         
         # wei = torch.zeros(T, T)
-        wei = wei.masked_fill(self.tril[:T, :T] == 0 , float('-inf')) # no peeking foward hehe
-        wei = F.softmax(wei, dim=1)  # the -inf elems gets the prob of 0 when passed thorugh softmax
-         
+        wei = wei.masked_fill(self.tril[:T, :T] == 0 , float('-inf')) # no peeking foward hehe, :T is used cause the T might be smaller when generation begins.
+        wei = F.softmax(wei, dim=-1)  # the -inf elems gets the prob of 0 when passed thorugh softmax
+        wei = self.dropout(wei)
+        
         v = self.value(x)
         out = wei @ v # the v gets aggregated
         return out
 
+class MultiHeadAttention(nn.Module):
+    def __init__(self, num_heads, head_size):
+        super().__init__()
+        self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+        self.proj = nn.Linear(num_heads * head_size, n_embed) # num_heads * head_size = n_embed. so, its n_embed -> n_embed
+        self.dropout = nn.Dropout(dropout)
+    def forward(self, x):
+        out = torch.cat([h(x) for h in self.heads], dim = -1) #combining all the features to form n_embed features again.
+        out = self.proj(out)
+        return self.dropout(out)
+    
+class FeedForward(nn.Module):
+    def __init__(self, n_embed):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(n_embed, 4 * n_embed),
+            nn.ReLU(),
+            nn.Linear(4 * n_embed, n_embed), #basicaly projection for ffwd, coupled straight into the sequential. 
+            nn.Dropout(dropout)
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+class Block(nn.Module):
+    def __init__(self, n_embed, n_head):
+        super().__init__()
+        self.sa_head = MultiHeadAttention(n_head, n_embed//n_head)
+        self.ffwd = FeedForward(n_embed)
+        self.ln1 = nn.LayerNorm(n_embed)
+        self.ln2 = nn.LayerNorm(n_embed)
+
+    def forward(self, x):
+        # adding residuals
+        x = x + self.sa_head(self.ln1(x)) # we fork off, compute the sa and come back to the original pathway.
+        x = x + self.ffwd(self.ln2(x))
+        # we feed the x into LayerNorm before sending it to sa or ffwd.
+        return x
+ 
 class BigramModel(nn.Module):
     def __init__(self):
         super().__init__()
         self.token_embedding = nn.Embedding(vocab_size, n_embed)
         self.positional_embedding = nn.Embedding(block_size, n_embed)
-        self.sa_head = Head(n_embed)
+        # self.sa_head = Head(n_embed)
+        # self.sa_head = MultiHeadAttention(4, n_embed // 4)
+        self.blocks = nn.Sequential(
+            *[Block(n_embed, n_head) for _ in range(n_layers)]
+        )
+        self.ln = nn.LayerNorm(n_embed)
+        # self.ffwd = FeedForward(n_embed)
         self.lm_head = nn.Linear(n_embed, vocab_size)
 
     def forward(self, idx, targets=None):
@@ -105,7 +153,10 @@ class BigramModel(nn.Module):
         tok_emb = self.token_embedding(idx)
         pos_emb = self.positional_embedding(torch.arange(T, device = device ))
         x = tok_emb + pos_emb
-        x = self.sa_head(x)
+        # x = self.sa_head(x)
+        # x = self.ffwd(x)
+        x = self.blocks(x)
+        x = self.ln(x)
         logits = self.lm_head(x)
 
         if targets is None:
@@ -124,12 +175,14 @@ class BigramModel(nn.Module):
         # idx_cropped = idx[:, -block_size:] -----> lol i tried to bring it up here thinking i was doing some crazy optimization -- welp, i was sending the autoregressive mech. on fire-- basically if it was out of the loop, it wont be able to use the newly generated tokens appended to it inside the loop -- so for every iter it would have just taken 0 as input basically "\n" xD
         for _ in range(max_new_tokens):
             idx_cropped = idx[:, -block_size:] #we have to crop it to only have 8 char because we have positional encoding
-            #it will only have the last 8 elems/chars
+            #it will only have the last block_size # elems/chars
 
             logits, loss = self(idx_cropped)
             logits = logits[:, -1, :] #taking only the last token, cause only the last token is used to generate the next token
 
-            probs = F.softmax(logits, dim = -1) # will do softmax for each batch item -> here there is no sense of batch but there is max_new_tokens. so, it would generate (1,vocab_size) softmax prob dist for every iter(basically for every new token)
+            probs = F.softmax(logits, dim = -1)
+             # will do softmax for each batch item -> here there is no sense of batch because the batch_size will be 1 but there is max_new_tokens. so, it would generate (1,vocab_size) softmax prob dist for every iter(basically for every new token)
+            
             idx_next = torch.multinomial(probs, num_samples =1)
             idx = torch.cat((idx, idx_next), dim=1) 
         return idx
@@ -139,7 +192,7 @@ model = model.to(device)
 
 optimizer = torch.optim.AdamW(model.parameters(), lr = lr) # AdamW is just adam-chan with weight decay decoupled from regular updatation.
 
-batch_size = 32
+
 for iter in range(max_iters):
     if iter % eval_interval == 0:
         losses = estimate_loss()
@@ -154,5 +207,5 @@ for iter in range(max_iters):
 
 print(loss.item())
 context = torch.zeros((1,1), dtype = torch.long, device = device)
-print(decode(model.generate(idx = context, max_new_tokens=500)[0].tolist()))
-
+print(decode(model.generate(idx = context, max_new_tokens=2500)[0].tolist()))
+torch.save(model.state_dict(), 'shakespeare.pt')
