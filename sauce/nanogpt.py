@@ -146,7 +146,7 @@ class BigramModel(nn.Module):
         )
         self.ln = nn.LayerNorm(n_embed)
         # self.ffwd = FeedForward(n_embed)
-        self.lm_head = nn.Linear(n_embed, vocab_size)
+        self.lm_head = nn.Linear(n_embed, vocab_size) # from n_embed -> vocab_size
 
     def forward(self, idx, targets=None):
         B, T = idx.shape
