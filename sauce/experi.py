@@ -5,30 +5,26 @@ from torch import nn
 from torch.nn import functional as F
 
 batch_size = 64
-block_size = 8 #context length
+block_size = 16  #context length
 max_iters = 2000
 eval_interval = 200
 lr = 3e-4
 device = "cuda" if torch.cuda.is_available() else "cpu"
 eval_iters = 200
-n_embed = 32
-n_head = 2
+n_embed = 64
+n_head = 4
 n_layers = 2
 dropout = .2
 # head_size = 16
 
 # !wget https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt
 
-with open('langv1.txt', 'r', encoding = 'utf-8') as f:
+with open('langv2.txt', 'r', encoding = 'utf-8') as f:
     text = f.read()
 
 torch.manual_seed(1337)
 
 
-with open('langv1.txt', 'r', encoding = 'utf-8') as f:
-    text = f.read()
-
-torch.manual_seed(1337)
 tokens = []
 for line in text.splitlines():
     tokens.append("<BOS>")
@@ -104,6 +100,9 @@ class Head(nn.Module):
         # wei = torch.zeros(T, T)
         wei = wei.masked_fill(self.tril[:T, :T] == 0 , float('-inf')) # no peeking foward hehe, :T implemeted cause at the time of generation the T might be diff when starting
         wei = F.softmax(wei, dim=-1)  # the -inf elems gets the prob of 0 when passed thorugh softmax
+
+        self.last_attention = wei.detach().cpu()
+
         wei = self.dropout(wei)
 
         v = self.value(x)
@@ -171,6 +170,9 @@ class BigramModel(nn.Module):
         # x = self.sa_head(x)
         # x = self.ffwd(x)
         x = self.blocks(x)
+
+        self.last_hidden = x.detach().cpu()
+
         x = self.ln(x)
         logits = self.lm_head(x)
 
@@ -189,6 +191,7 @@ class BigramModel(nn.Module):
         #!!!HEAVY LEARNING FROM HEAVY MISTAKE
         # idx_cropped = idx[:, -block_size:] -----> lol i tried to bring it up here thinking i was doing some crazy optimization -- welp, i was sending the autoregressive mech. on fire-- basically if it was out of the loop, it wont be able to use the newly generated tokens appended to it inside the loop -- so for every iter it would have just taken 0 as input basically "\n" xD
         for _ in range(max_new_tokens):
+
             idx_cropped = idx[:, -block_size:] #we have to crop it to only have 8 char because we have positional encoding
             #it will only have the last 8 elems/chars
 
@@ -199,6 +202,8 @@ class BigramModel(nn.Module):
              # will do softmax for each batch item -> here there is no sense of batch because the batch_size will be 1 but there is max_new_tokens. so, it would generate (1,vocab_size) softmax prob dist for every iter(basically for every new token)
 
             idx_next = torch.multinomial(probs, num_samples =1)
+            if idx_next.item() == stoi["<EOS>"]:
+                break
             idx = torch.cat((idx, idx_next), dim=1)
         return idx
 model = BigramModel()
@@ -213,7 +218,7 @@ for iter in range(max_iters):
         losses = estimate_loss()
         print(f'step {iter} | Train loss {losses['train']:.4f} | val loss {losses['val']:.4f}')
 
-    SAVE_STEPS = [100, 250, 500, 1000, 1250, 1500, 1750, 1999]
+    SAVE_STEPS = [100, 250, 500, 1000, 1250, 1500, 1999]
 
     if iter in SAVE_STEPS:
         torch.save(
@@ -221,7 +226,7 @@ for iter in range(max_iters):
                 "iter": iter,
                 "model_state_dict": model.state_dict(),
             },
-            f"2h2bwordlvlwWsptokesn/ckpt_{iter}.pt"
+            f"langv2e1/ckpt_{iter}.pt"
         )
     xb, yb= get_batch('train')
 
@@ -232,5 +237,5 @@ for iter in range(max_iters):
     optimizer.step()
 
 print(loss.item())
-context = torch.tensor(encode("fira"), dtype = torch.long, device = device).unsqueeze(0)
+context = torch.tensor(encode("na"), dtype = torch.long, device = device).unsqueeze(0)
 print(decode(model.generate(idx = context, max_new_tokens=2500)[0].tolist()))
