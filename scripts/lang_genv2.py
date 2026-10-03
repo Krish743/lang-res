@@ -27,7 +27,10 @@ places = [
     "femi", "damar"
 ]
 
+# TODO : fix the collision issue with fira(red) and fira(star)(maybe)
+
 nature = [
+
     "luma", "fira"
 ]
 
