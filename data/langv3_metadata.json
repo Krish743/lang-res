@@ -1,0 +1,129 @@
+{
+  "language": "LangV3",
+  "seed": 1337,
+  "num_sentences": 200000,
+  "morphology": {
+    "plural_noun_suffix": "n",
+    "plural_verb_suffix": "s",
+    "past_suffix": "ra",
+    "future_suffix": "li"
+  },
+  "lexicon": {
+    "determiners": {
+      "ta": "the",
+      "na": "a/an"
+    },
+    "people": {
+      "obama": "man",
+      "osama": "woman",
+      "madre": "mother",
+      "padre": "father",
+      "dumdum": "student"
+    },
+    "animals": {
+      "kuku": "dog",
+      "neko": "cat",
+      "resta": "wolf",
+      "kaka": "crocodile",
+      "chichi": "sparrow",
+      "kawkaw": "crow",
+      "nori": "fish"
+    },
+    "objects": {
+      "vomi": "chair",
+      "kafka": "book",
+      "ghar": "house",
+      "doro": "door",
+      "kito": "window",
+      "mepa": "map",
+      "pati": "paper",
+      "bexa": "box"
+    },
+    "places": {
+      "femi": "mountain",
+      "damar": "road"
+    },
+    "nature": {
+      "luma": "star",
+      "firax": "fire"
+    },
+    "food": {
+      "mira": "fruit",
+      "sopa": "soup",
+      "bren": "bread",
+      "tanu": "rice"
+    },
+    "adjectives": {
+      "fira": "red",
+      "boku": "blue",
+      "sena": "green",
+      "moro": "yellow",
+      "leni": "big",
+      "vaku": "small",
+      "desa": "fast",
+      "roni": "slow",
+      "kema": "strong",
+      "zeli": "weak",
+      "pira": "hot",
+      "nemo": "cold",
+      "jaku": "bright",
+      "henu": "dark",
+      "bora": "new",
+      "tenu": "old",
+      "fomi": "happy",
+      "yera": "sad",
+      "dani": "loud",
+      "loku": "quiet"
+    },
+    "verbs": {
+      "bhago": "run",
+      "jojo": "walk",
+      "davi": "climb",
+      "nexo": "fall",
+      "snan": "swim",
+      "icarus": "fly",
+      "perv": "see",
+      "rime": "read",
+      "loti": "write",
+      "paku": "push",
+      "soro": "pull",
+      "sisy": "carry",
+      "bobder": "build",
+      "fenu": "open",
+      "zari": "close",
+      "yumyum": "eat",
+      "sita": "sit"
+    },
+    "special": {
+      "ke": "who/that",
+      "kesa": "is/are"
+    }
+  },
+  "category_words": {
+    "human": "homa",
+    "animal": "zuka",
+    "object": "toma",
+    "place": "loka",
+    "food": "foda",
+    "nature": "natura"
+  },
+  "generation": {
+    "nested_relative_probability": 0.05,
+    "taxonomy_probability": 0.01,
+    "template_weights": {
+      "template_motion": 0.14,
+      "template_fly": 0.05,
+      "template_swim": 0.05,
+      "template_eat": 0.14,
+      "template_read": 0.09,
+      "template_write": 0.07,
+      "template_build": 0.07,
+      "template_open_close": 0.06,
+      "template_carry": 0.06,
+      "template_push_pull": 0.1,
+      "template_see": 0.1,
+      "template_sit": 0.05,
+      "template_relative": 0.02
+    }
+  }
+}
