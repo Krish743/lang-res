@@ -19,7 +19,7 @@ dropout = .2
 
 # !wget https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt
 
-with open('langv3.txt', 'r', encoding = 'utf-8') as f:
+with open('../data/langv3.txt', 'r', encoding = 'utf-8') as f:
     text = f.read()
 
 torch.manual_seed(1337)
@@ -206,36 +206,41 @@ class BigramModel(nn.Module):
                 break
             idx = torch.cat((idx, idx_next), dim=1)
         return idx
-model = BigramModel()
-model = model.to(device)
+def main():
+    model = BigramModel()
+    model = model.to(device)
 
 
-optimizer = torch.optim.AdamW(model.parameters(), lr = lr) # AdamW is just adam-chan with weight decay decoupled from regular updatation.
+    optimizer = torch.optim.AdamW(model.parameters(), lr = lr) # AdamW is just adam-chan with weight decay decoupled from regular updatation.
 
 
-for iter in range(max_iters):
-    if iter % eval_interval == 0:
-        losses = estimate_loss()
-        print(f'step {iter} | Train loss {losses['train']:.4f} | val loss {losses['val']:.4f}')
+    for iter in range(max_iters):
+        if iter % eval_interval == 0:
+            losses = estimate_loss()
+            print(f'step {iter} | Train loss {losses['train']:.4f} | val loss {losses['val']:.4f}')
 
-    SAVE_STEPS = [100, 250, 500, 1000, 1250, 1500, 2000,  2500, 3000, 3500, 4000, 4500, 5000]
+        SAVE_STEPS = [100, 250, 500, 1000, 1250, 1500, 2000,  2500, 3000, 3500, 4000, 4500, 4999]
 
-    if iter in SAVE_STEPS:
-        torch.save(
-            {
-                "iter": iter,
-                "model_state_dict": model.state_dict(),
-            },
-            f"langv3/ckpt_{iter}.pt"
-        )
-    xb, yb= get_batch('train')
+        if iter in SAVE_STEPS:
+            torch.save(
+                {
+                    "iter": iter,
+                    "model_state_dict": model.state_dict(),
+                },
+                f"langv3/ckpt_{iter}.pt"
+            )
+        xb, yb= get_batch('train')
 
-    logits, loss = model(xb, yb)
-    optimizer.zero_grad()
+        logits, loss = model(xb, yb)
+        optimizer.zero_grad()
 
-    loss.backward()
-    optimizer.step()
+        loss.backward()
+        optimizer.step()
 
-print(loss.item())
-context = torch.tensor(encode("na"), dtype = torch.long, device = device).unsqueeze(0)
-print(decode(model.generate(idx = context, max_new_tokens=15)[0].tolist()))
+    print(loss.item())
+    context = torch.tensor(encode("na"), dtype = torch.long, device = device).unsqueeze(0)
+    print(decode(model.generate(idx = context, max_new_tokens=15)[0].tolist()))
+
+
+if  "__name__" == "__main__":
+    main()
